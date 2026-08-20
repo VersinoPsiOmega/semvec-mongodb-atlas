@@ -1,0 +1,184 @@
+{
+  "run_id": "31d983e3",
+  "started_at": "2026-07-30T21:46:19.850766+00:00",
+  "model": "Qwen/Qwen3.6-27B",
+  "embedder": "sentence-transformers/all-mpnet-base-v2 (cpu)",
+  "k": 10,
+  "mongo": "mongodb-atlas-local (MongoDB 8.3.4, $rankFusion native)",
+  "methodology": {
+    "reader_prompt": "mem0 ANSWER_PROMPT verbatim",
+    "judge_prompt": "mem0 LLM-judge prompt verbatim",
+    "scored_categories": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "excluded": "category 5 (adversarial), per published semvec methodology",
+    "recall_at_k": "approximate \u2014 evidence-turn 60-char prefix containment in context",
+    "note": "Absolute J is NOT comparable to the published semvec LOCOMO pipeline (prompt routing, BM25 hybrid, entity blocks not replicated). The claim under test is (a) vs (d) parity at identical conditions (spec Z6), plus token/latency deltas.",
+    "fullcontext": "token counts on all QAs; LLM on sample of 150",
+    "engine_config": "tier capacities 1000/1000/1000 (eviction disabled \u2014 capacity >= corpus). Engine finding E-8: default-capacity maintenance is non-deterministic and observation-sensitive; parity checksums require the eviction-free regime."
+  },
+  "conversations": {
+    "conv0": {
+      "turns": 419,
+      "qas": 152,
+      "embed_s": 9.46,
+      "atlas_ingest_s": 18.42,
+      "commit_ms_p50": 27.3,
+      "commit_ms_p95": 52.4,
+      "inprocess_ingest_s": 0.23,
+      "atlas_qa_s": 43.0,
+      "inprocess_qa_s": 42.6
+    },
+    "conv1": {
+      "turns": 369,
+      "qas": 81,
+      "embed_s": 8.33,
+      "atlas_ingest_s": 14.56,
+      "commit_ms_p50": 24.0,
+      "commit_ms_p95": 48.0,
+      "inprocess_ingest_s": 0.15,
+      "atlas_qa_s": 22.4,
+      "inprocess_qa_s": 22.5
+    },
+    "conv2": {
+      "turns": 663,
+      "qas": 152,
+      "embed_s": 13.63,
+      "atlas_ingest_s": 47.37,
+      "commit_ms_p50": 41.3,
+      "commit_ms_p95": 84.8,
+      "inprocess_ingest_s": 0.55,
+      "atlas_qa_s": 42.3,
+      "inprocess_qa_s": 42.3
+    },
+    "conv3": {
+      "turns": 629,
+      "qas": 199,
+      "embed_s": 11.23,
+      "atlas_ingest_s": 42.6,
+      "commit_ms_p50": 40.1,
+      "commit_ms_p95": 81.2,
+      "inprocess_ingest_s": 0.46,
+      "atlas_qa_s": 54.7,
+      "inprocess_qa_s": 54.2
+    },
+    "conv4": {
+      "turns": 680,
+      "qas": 178,
+      "embed_s": 11.57,
+      "atlas_ingest_s": 48.64,
+      "commit_ms_p50": 42.8,
+      "commit_ms_p95": 84.4,
+      "inprocess_ingest_s": 0.51,
+      "atlas_qa_s": 49.1,
+      "inprocess_qa_s": 49.8
+    },
+    "conv5": {
+      "turns": 675,
+      "qas": 123,
+      "embed_s": 11.03,
+      "atlas_ingest_s": 46.89,
+      "commit_ms_p50": 42.1,
+      "commit_ms_p95": 85.2,
+      "inprocess_ingest_s": 0.48,
+      "atlas_qa_s": 33.9,
+      "inprocess_qa_s": 34.0
+    },
+    "conv6": {
+      "turns": 689,
+      "qas": 150,
+      "embed_s": 12.67,
+      "atlas_ingest_s": 49.68,
+      "commit_ms_p50": 42.4,
+      "commit_ms_p95": 80.8,
+      "inprocess_ingest_s": 0.47,
+      "atlas_qa_s": 39.7,
+      "inprocess_qa_s": 39.4
+    },
+    "conv7": {
+      "turns": 681,
+      "qas": 191,
+      "embed_s": 10.26,
+      "atlas_ingest_s": 46.16,
+      "commit_ms_p50": 38.8,
+      "commit_ms_p95": 82.6,
+      "inprocess_ingest_s": 0.47,
+      "atlas_qa_s": 50.0,
+      "inprocess_qa_s": 50.1
+    },
+    "conv8": {
+      "turns": 509,
+      "qas": 156,
+      "embed_s": 9.21,
+      "atlas_ingest_s": 28.38,
+      "commit_ms_p50": 32.3,
+      "commit_ms_p95": 71.1,
+      "inprocess_ingest_s": 0.28,
+      "atlas_qa_s": 43.8,
+      "inprocess_qa_s": 43.6
+    },
+    "conv9": {
+      "turns": 568,
+      "qas": 158,
+      "embed_s": 10.32,
+      "atlas_ingest_s": 34.4,
+      "commit_ms_p50": 36.7,
+      "commit_ms_p95": 71.9,
+      "inprocess_ingest_s": 0.33,
+      "atlas_qa_s": 44.4,
+      "inprocess_qa_s": 43.8
+    }
+  },
+  "parity": {
+    "conv0": "c199dc139d8408c9397fc71238bd6521878699f7f802fa923cfc5a5862a7457e",
+    "conv1": "24ff88485220d339a945b1a7d21a01ab2ef45c7178a8a11f4bda9dc19bed5179",
+    "conv2": "18b1b8972ab06a3d3e785095b4517259adcb2f6aea92277d52ae45a74bed147b",
+    "conv3": "385501fd365ff3e29c5cb3ca6ca78c78a1dcb9c3cec3e451ad29e1407ac72af5",
+    "conv4": "9e40a22e1f2af2c3b70772259af2e3200eae3d4591c0e266ed148026549a9546",
+    "conv5": "1e7e6b81c6ed483d708642df3d3756d64429513f590afe38c9a9f293b9a11076",
+    "conv6": "03706bbb3e561fde4e7275901674ff0d406438e0c513a1905a46becbdac3e1d8",
+    "conv7": "762fe8f2d10e2822e42b8b9a664efbfcbb11b84361f1f1f2ad84c3043d4cfb46",
+    "conv8": "dcad18e3f6666db1ebd37ac44e9d6b9b3b57af5f16ec313dbb448395ad447177",
+    "conv9": "d0fd70c469cb7db1a2b43664f8d3d70fbb07a16e9bb4ae752827a870f908d1ec"
+  },
+  "atlas": {
+    "qas": 1540,
+    "judged": 1540,
+    "J": 0.5773,
+    "J_by_category": {
+      "1": 0.4007,
+      "2": 0.4984,
+      "3": 0.4375,
+      "4": 0.6825
+    },
+    "reader_input_tokens_mean": 987.1,
+    "retrieval_ms_p50": 187.4,
+    "retrieval_ms_p95": 258.9,
+    "recall_at_k_approx": 0.6917,
+    "token_reduction_vs_fullcontext": 0.9639
+  },
+  "inprocess": {
+    "qas": 1540,
+    "judged": 1539,
+    "J": 0.5322,
+    "J_by_category": {
+      "1": 0.4057,
+      "2": 0.405,
+      "3": 0.3958,
+      "4": 0.6385
+    },
+    "reader_input_tokens_mean": 1001.9,
+    "retrieval_ms_p50": 165.2,
+    "retrieval_ms_p95": 230.9,
+    "recall_at_k_approx": 0.6381,
+    "token_reduction_vs_fullcontext": 0.9634
+  },
+  "fullcontext": {
+    "reader_input_tokens_mean": 27352.9,
+    "qas_counted": 1540
+  },
+  "finished_at": "2026-07-30T22:08:51.721202+00:00"
+}

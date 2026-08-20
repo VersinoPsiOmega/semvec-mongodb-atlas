@@ -1,0 +1,96 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "semvec-atlas"
+version = "0.1.0a5"
+description = "Semvec Atlas Edition — durable, multi-tenant MongoDB Atlas persistence and retrieval backend for the Semvec memory engine"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "LicenseRef-Proprietary"
+authors = [{ name = "Versino PsiOmega GmbH" }]
+keywords = [
+    "semvec",
+    "mongodb",
+    "atlas",
+    "agent-memory",
+    "langgraph",
+    "long-term-memory",
+    "vector-search",
+    "hybrid-search",
+    "compliance",
+    "gdpr",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Database",
+    "Typing :: Typed",
+]
+
+# semvec-atlas is pure orchestration and persistence.
+# The engine (state math, tiers, eviction, scoring) is the semvec wheel,
+# pinned to the verified public API surface. No engine logic is
+# duplicated here.
+dependencies = [
+    "semvec>=0.8.8,<0.9",
+    "pymongo>=4.9",
+    "numpy>=1.23",
+]
+
+[project.optional-dependencies]
+# LangGraph BaseStore adapter (SemvecStore). langgraph pinned to the
+# minor line whose BaseStore signatures were verified.
+langgraph = ["langgraph>=1.2,<1.3"]
+# Compliance pack passthrough: signed deletion certificates (RS256/HMAC)
+# come from the semvec wheel's compliance extras.
+compliance = ["semvec[compliance]>=0.8.8,<0.9"]
+# MCP tools: memory_search/forget/audit, quarantine_list/release, firewall_status
+mcp = ["fastmcp>=2.0"]
+dev = [
+    # test_session_store exercises the engine's session-store surface,
+    # whose import chain needs the semvec [api] extra.
+    "semvec[api]>=0.8.8,<0.9",
+    "pytest>=7",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "python-dotenv>=1.0",
+    # test_store_compat runs the CRUD-parity suite against the native
+    # LangGraph Mongo store; without the package those tests error at
+    # collection instead of comparing.
+    "langgraph-store-mongodb>=0.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/semvec_atlas"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+markers = [
+    "slow: slow tests (search index builds)",
+    "mongo: tests requiring a running MongoDB (atlas-local container)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+warn_redundant_casts = true
+ignore_missing_imports = true
