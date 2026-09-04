@@ -110,11 +110,13 @@ Three sub-pipelines, each carrying the tenant guard plus
 * lexical — `$search` on `summary` (lucene.german + standard multi),
 * recency — `$sort access.last` (never engine-internal scores).
 
-Fusion: server-side `$rankFusion` (detected at startup, weights per
-tenant, default 0.5/0.3/0.2, `scoreDetails`) with automatic degradation
-to the wheel's `rrf_fuse` at identical weights — on feature absence
-*or* mid-flight preview drift. Both paths are covered by
-the same test suite and agree on clear-cut top hits.
+Fusion: server-side `$rankFusion` (generally available; needs MongoDB
+8.1+ alongside `$vectorSearch`) is detected at startup and runs with
+per-tenant weights, default 0.5/0.3/0.2, `scoreDetails`. Automatic
+degradation to the wheel's `rrf_fuse` at identical weights covers a
+server below that floor and a capability that disappears mid-flight.
+Both paths are covered by the same test suite and agree on clear-cut
+top hits.
 
 ## Multi-tenancy
 

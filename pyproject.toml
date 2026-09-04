@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "semvec-atlas"
-version = "0.1.0a5"
+version = "0.1.0a6"
 description = "Semvec Atlas Edition — durable, multi-tenant MongoDB Atlas persistence and retrieval backend for the Semvec memory engine"
 readme = "README.md"
 requires-python = ">=3.10"

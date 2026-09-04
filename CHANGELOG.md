@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.1.0a6
+
+Business records beside agent memory, the coordination layer persisted,
+and two pieces of operational honesty: a threshold registry that refuses
+an unmeasured embedder, and a probe that reports what a deployment can
+actually do. Verified by 297 tests.
+
+### Domain records in the turn transaction
+
+- **`DomainWrite`** — a turn can carry business records (`claims`,
+  `policies`) that commit inside the *same* multi-document transaction as
+  the memory event, the item mutations and the snapshot. A failing domain
+  write rolls the turn back whole, so a record can never exist without
+  the memory of the turn that produced it.
+- **Scoped tenant-wide, not per agent** — several specialist agents work
+  the same case, so binding a record to whichever agent opened it would
+  hide it from the rest.
+- **Guarded twice**: the writable collections are an allowlist (the
+  audit log has exactly one writer), and a write key must be a scalar
+  identifier — a query operator there would match and overwrite another
+  record of the same tenant.
+- **`DomainJoin`** — retrieval returns ranked memory hits already joined
+  to the record they concern: a `$lookup` inside the same aggregation on
+  the server-side path, one batch query on the client-side fallback. The
+  tenant equality lives inside the lookup pipeline, so a foreign record
+  with a colliding business key is never a candidate.
+
+### Coordination layer as queryable data
+
+- **`AtlasCortexStore`** mirrors the engine's multi-agent cortex into
+  three collections: participation per (case, agent), the observer's
+  coherence/resonance readings as an append-only series, and one document
+  per decision with its rationale, votes and outcome.
+- **`case_timeline()`** answers "which agents worked this case, when did
+  they converge, and how was it decided" in one round trip.
+- A recorded decision cannot be rewritten under its own id
+  (`ProposalConflict`), and the store satisfies the engine's persistence
+  seam, so a `SemvecCortexService` can be handed an Atlas-backed store.
+
+### Operational honesty
+
+- **Calibrated threshold registry** — a firewall threshold is a property
+  of the embedding model, so `threshold_for()` serves only measured
+  profiles and refuses an unknown model rather than lending it another
+  model's number. `calibrate_threshold()` reproduces the shipped profile
+  and raises when a corpus is not separable.
+- **Deployment probe** — `python -m semvec_atlas.deployment <uri>`
+  reports server version, topology, transaction support, Search Index
+  availability and `$rankFusion`, separating a hard requirement
+  (transactions) from an optimisation with a working fallback.
+- **`$rankFusion` is documented as generally available**, and the
+  client-side RRF fallback is explained by the version floor it covers
+  rather than by a preview that might be withdrawn.
+
+### Demo and documentation
+
+- **`demo/claims_scenario.py`** — a claims platform serving several
+  insurers, four specialist agents on one motor claim. Runs in seconds
+  against the local container with no licence key, no LLM and no API
+  calls; `demo/run.sh --claims` launches it.
+- **`docs/blog/agent-memory-on-atlas-draft.md`** — a full technical
+  article built on this release, with six diagrams and every figure
+  measured on the reference implementation.
+
 ## 0.1.0a5
 
 First public evaluation release of the **Semvec Atlas Edition**: a

@@ -28,6 +28,29 @@ from pymongo.errors import CollectionInvalid, OperationFailure
 
 logger = logging.getLogger(__name__)
 
+#: Business records that live beside the memory collections and may be
+#: written inside a turn's transaction (see ``commit.DomainWrite``).
+#:
+#: This tuple is an allowlist, not an inventory. ``domain_writes`` is a
+#: generic upsert primitive driven by caller-supplied names, so without
+#: a closed set it would reach ``compliance_events`` — a log whose whole
+#: value is that only the event store appends to it.
+#:
+#: Domain records are scoped to the **tenant**, not to (tenant, agent):
+#: several specialist agents work the same case, and binding a claim to
+#: whichever agent opened it would hide it from the rest.
+DOMAIN_COLLECTIONS = (
+    "claims",
+    "policies",
+)
+
+#: The multi-agent coordination layer's mirror (see ``cortex_store``).
+CORTEX_COLLECTIONS = (
+    "cortex_agents",
+    "cortex_observations",
+    "cortex_proposals",
+)
+
 COLLECTIONS = (
     "state_snapshots",
     "memory_items",
@@ -37,6 +60,8 @@ COLLECTIONS = (
     "tenants",
     "quarantined_inputs",
     "firewall_anchors",
+    *DOMAIN_COLLECTIONS,
+    *CORTEX_COLLECTIONS,
 )
 
 # Insert *shape* of one compliance event. Mirrors semvec's MemoryEvent
@@ -141,6 +166,36 @@ def provision(
     db.firewall_anchors.create_index(
         [("tenant", 1), ("created_at", -1)],
         name="ix_fwa",
+    )
+    # Domain records: tenant-wide, unique per business key, so every
+    # agent of the tenant reaches the same document and a repeated
+    # upsert updates rather than duplicates.
+    db.claims.create_index(
+        [("tenant", 1), ("claim_id", 1)],
+        name="ix_claim",
+        unique=True,
+    )
+    db.policies.create_index(
+        [("tenant", 1), ("policy_number", 1)],
+        name="ix_policy",
+        unique=True,
+    )
+    # Cortex mirror: participation is one row per (case, agent);
+    # readings and decisions are series, read oldest-first per case.
+    db.cortex_agents.create_index(
+        [("tenant", 1), ("case", 1), ("instance_id", 1)],
+        name="ix_cortex_agent",
+        unique=True,
+    )
+    db.cortex_observations.create_index(
+        [("tenant", 1), ("case", 1), ("recorded_at", 1)],
+        name="ix_cortex_obs",
+    )
+    # Unique: a recorded decision must not be rewritten under its own id.
+    db.cortex_proposals.create_index(
+        [("tenant", 1), ("proposal_id", 1)],
+        name="ix_cortex_prop",
+        unique=True,
     )
     if ttl_short_seconds is not None:
         db.memory_items.create_index(

@@ -12,7 +12,7 @@
 ```
 
 <p align="center">
-  <img alt="tests" src="https://img.shields.io/badge/tests-253%20passing-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-297%20passing-brightgreen">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white">
   <img alt="mongodb" src="https://img.shields.io/badge/MongoDB%20Atlas-8.3%20%C2%B7%20%24rankFusion-47A248?logo=mongodb&logoColor=white">
   <img alt="engine" src="https://img.shields.io/badge/engine-semvec%20%E2%89%A5%200.8.8-6E4AFF">
@@ -26,7 +26,7 @@
 persistence and retrieval backend for the
 [Semvec](https://semvec-docs.pages.dev) memory engine.
 
-> Status: alpha. Verified by 253 tests against the public
+> Status: alpha. Verified by 297 tests against the public
 > API of the `semvec` PyPI wheel (`>=0.8.8,<0.9`) and a local
 > `mongodb/mongodb-atlas-local` deployment (MongoDB 8.3.4 — Atlas
 > Search, Vector Search, transactions, native `$rankFusion`).
@@ -128,7 +128,7 @@ installed) — the system Python won't work (PEP 668, and the demo needs
 ## Tests
 
 ```bash
-python -m pytest tests/ -q -m "not slow"   # 235 tests, ~45 s
+python -m pytest tests/ -q -m "not slow"   # 279 tests, ~70 s
 python -m pytest tests/ -q                 # + 18 search-index tests
 ```
 

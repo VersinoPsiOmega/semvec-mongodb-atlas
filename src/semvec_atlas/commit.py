@@ -24,7 +24,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
@@ -42,16 +42,43 @@ from semvec_atlas.firewall import (
     SemanticFirewall,
     redact,
 )
-from semvec_atlas.guard import TenantScope
+from semvec_atlas.guard import TenantGuardViolation, TenantScope
+from semvec_atlas.indexes import DOMAIN_COLLECTIONS
 from semvec_atlas.item_sync import MemoryItemSync, SyncReport
 from semvec_atlas.persistence import AtlasPersistence, SnapshotMeta
 
-__all__ = ["QuarantineInfo", "RecoveryInfo", "TurnCommitResult", "TurnCommitter"]
+__all__ = [
+    "DomainWrite",
+    "QuarantineInfo",
+    "RecoveryInfo",
+    "TurnCommitResult",
+    "TurnCommitter",
+]
 
 _ZERO_NORM_EPS = 1e-8  # mirrors SemvecSession.update_state
 
 QUARANTINE_MARKER = "quarantine"
 INOCULATION_MARKER = "inoculation"
+
+
+@dataclass(frozen=True)
+class DomainWrite:
+    """One business-record upsert to commit together with the turn.
+
+    ``key`` identifies the record (``{"claim_id": "CL-88371"}``) and
+    ``doc`` carries the fields to set. The tenant is added by the guard
+    and can be set by neither, so a caller cannot address another
+    tenant's record even by supplying the field explicitly.
+
+    The upsert is deliberate: an agent turn that mentions a claim should
+    not have to know whether that claim already exists. Fields the write
+    does not name survive, so two agents updating different aspects of
+    one case do not overwrite each other.
+    """
+
+    collection: str
+    key: dict[str, Any]
+    doc: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -83,6 +110,9 @@ class TurnCommitResult:
     event_seq: int | None = None
     sync: SyncReport | None = None
     snapshot: SnapshotMeta | None = None
+    # Business records written inside the turn's transaction; 0 when the
+    # caller passed none.
+    domain_writes: int = 0
     # The engine's per-turn mutation feed (semvec >= 0.8.5);
     # None when the engine skipped the input.
     mutations: list[dict[str, Any]] | None = None
@@ -163,8 +193,29 @@ class TurnCommitter:
         text: str,
         embedding: np.ndarray | None = None,
         event_meta: dict[str, Any] | None = None,
+        domain_writes: list[DomainWrite] | None = None,
+        domain_link: dict[str, Any] | None = None,
     ) -> TurnCommitResult:
-        """Engine update, then atomic persistence of the results."""
+        """Engine update, then atomic persistence of the results.
+
+        ``domain_writes`` are business records committed inside the same
+        transaction as the memory event, the item mutations and the
+        snapshot: a failing domain write rolls the turn back whole, so
+        there is no state in which the record exists without the memory
+        of the turn that produced it, or the other way round.
+
+        ``domain_link`` stamps identifying fields (``{"claim_id": …}``)
+        onto this turn's memory items, which is what lets retrieval join
+        a ranked memory hit to the record it concerns in one
+        aggregation. It never reaches the engine — replay folds
+        ``(embedding, content)`` pairs only, so the link cannot affect
+        the recovered state.
+        """
+        # Validate before the engine runs: a refused write must not leave
+        # the in-process state one turn ahead of the database.
+        for write in domain_writes or ():
+            self._check_domain_write(write)
+
         if embedding is None:
             embedding = np.asarray(
                 self._embedder.get_embedding(text), dtype=np.float64
@@ -209,11 +260,14 @@ class TurnCommitter:
                 turn=turn,
                 mongo_session=ms,
                 mutations=mutations,
+                domain_link=domain_link,
                 force_diff=(
                     self._safety_net_every > 0
                     and turn % self._safety_net_every == 0
                 ),
             )
+            for write in domain_writes or ():
+                self._apply_domain_write(write, mongo_session=ms)
             snapshot: SnapshotMeta | None = None
             if self._snapshot_every > 0 and turn % self._snapshot_every == 0:
                 snapshot = self._persistence.save_snapshot(
@@ -229,7 +283,60 @@ class TurnCommitter:
             sync=sync,
             snapshot=snapshot,
             mutations=mutations,
+            domain_writes=len(domain_writes or ()),
             txn_ms=(time.perf_counter() - txn_start) * 1000.0,
+        )
+
+    # ------------------------------------------------------------------
+    # domain records
+
+    def _check_domain_write(self, write: DomainWrite) -> None:
+        """Refuse anything the turn transaction must not be able to write.
+
+        Two rules, both fail-closed. The collection must be on the
+        allowlist, because ``domain_writes`` is otherwise a generic
+        upsert primitive that could address the append-only audit log.
+        And neither ``key`` nor ``doc`` may carry a scope field: the
+        guard owns those, and a caller-supplied ``tenant`` is exactly
+        how a cross-tenant write would look.
+        """
+        if write.collection not in DOMAIN_COLLECTIONS:
+            raise TenantGuardViolation(
+                f"{write.collection!r} is not a domain collection "
+                f"(allowed: {', '.join(DOMAIN_COLLECTIONS)})"
+            )
+        for field in ("tenant", "agent"):
+            if field in write.key or field in write.doc:
+                raise TenantGuardViolation(
+                    f"a domain write may not set {field!r} — the scope owns it"
+                )
+        # A key identifies one record; it is not a query. A value like
+        # ``{"$exists": True}`` clears the checks above — it names no
+        # scope field — and would then match some *other* record of the
+        # same tenant and overwrite it.
+        for field, value in write.key.items():
+            if isinstance(value, (dict, list)):
+                raise TenantGuardViolation(
+                    f"domain write key {field!r} must be a scalar identifier, "
+                    f"got {type(value).__name__} — a key is not a query"
+                )
+
+    def _apply_domain_write(self, write: DomainWrite, *, mongo_session: Any) -> None:
+        """Upsert one business record inside the turn's transaction.
+
+        Scoped tenant-wide rather than per agent: the specialists of one
+        tenant work the same case, so the record must not belong to
+        whichever agent happened to touch it first.
+        """
+        tenant_wide = TenantScope(tenant=self._scope.tenant)
+        self._db[write.collection].update_one(
+            tenant_wide.filter(dict(write.key)),
+            {
+                "$set": dict(write.doc),
+                "$setOnInsert": {"created_at": datetime.now(timezone.utc)},
+            },
+            upsert=True,
+            session=mongo_session,
         )
 
     def _hold_turn(

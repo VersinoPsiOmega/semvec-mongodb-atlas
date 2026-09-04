@@ -30,9 +30,34 @@ from bson.binary import Binary
 from pymongo import UpdateOne
 from pymongo.database import Database
 
-from semvec_atlas.guard import TenantScope
+from semvec_atlas.guard import TenantGuardViolation, TenantScope
 
 __all__ = ["MemoryItemSync", "SyncReport"]
+
+#: Item-document fields the engine mirror owns. A ``domain_link`` that
+#: touched one of these would let a caller write engine state through a
+#: parameter meant for business identifiers.
+_MIRROR_FIELDS = frozenset(
+    {
+        "kind",
+        "summary",
+        "embedding",
+        "tier",
+        "tiers",
+        "access",
+        "item_meta",
+        "engine_meta",
+        "evicted",
+        "deleted",
+        "updated_at",
+        "created_at",
+        "turn_added",
+        "key",
+        "ns",
+        "tenant",
+        "agent",
+    }
+)
 
 # Order matters: index == rank, highest wins.
 TIER_ORDER = ("short", "medium", "long")
@@ -125,6 +150,7 @@ class MemoryItemSync:
         turn: int,
         mongo_session: Any = None,
         mutations: list[dict[str, Any]] | None = None,
+        domain_link: dict[str, Any] | None = None,
         force_diff: bool = False,
         _tier_view_override: dict[str, dict[str, Any]] | None = None,
     ) -> SyncReport:
@@ -147,6 +173,13 @@ class MemoryItemSync:
         promotion decisions belong to the engine and cannot be
         forced through public API without volume.
         """
+        if domain_link:
+            clashing = sorted(set(domain_link) & _MIRROR_FIELDS)
+            if clashing:
+                raise TenantGuardViolation(
+                    f"domain_link may not set mirror field(s) {clashing} — "
+                    "those belong to the engine's item state"
+                )
         if mutations is not None and not mutations and not force_diff:
             return SyncReport(added=0, updated=0, evicted=0, skipped=True)
         engine_view = (
@@ -179,6 +212,16 @@ class MemoryItemSync:
                 "evicted": False,
                 "updated_at": now,
             }
+            if domain_link:
+                # Identifying fields of the business record this turn
+                # concerns, so retrieval can join a ranked hit to it.
+                # Persisted on the document only — never handed to the
+                # engine, so replay stays checksum-faithful.
+                #
+                # Merged last but checked first: the link names business
+                # keys, and a link that reached ``tier`` or ``embedding``
+                # would let a caller write engine-owned mirror state.
+                doc_update.update(domain_link)
             existing = persisted.get(item_id)
             if existing is None:
                 added += 1

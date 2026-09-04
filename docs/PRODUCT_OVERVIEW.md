@@ -5,7 +5,7 @@ hybrid retrieval, a semantic firewall against memory poisoning, and
 GDPR-grade forgetting for the [Semvec](https://semvec-docs.pages.dev)
 memory engine.
 
-> Status: alpha · 253 tests · engine:
+> Status: alpha · 297 tests · engine:
 > `semvec>=0.8.8,<0.9` · verification target:
 > `mongodb/mongodb-atlas-local` (MongoDB 8.3.4 — Atlas Search, Vector
 > Search, multi-document transactions, native `$rankFusion`)
@@ -409,7 +409,7 @@ auditability, and shared fleet memory.
 
 ### How it's built
 
-* **253 tests** (235 fast + 18 Atlas-Search-index tests); every
+* **297 tests** (279 fast + 18 Atlas-Search-index tests); every
   isolation claim is tested with real foreign-tenant writes, never by
   convention.
 * **Determinism as a gate, not a metric** — replay must be

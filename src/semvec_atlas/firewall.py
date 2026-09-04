@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import unicodedata
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -40,13 +41,18 @@ import numpy as np
 from semvec_atlas.guard import TenantScope
 
 __all__ = [
+    "CALIBRATED_PROFILES",
     "AnchorStore",
+    "CalibrationError",
     "FirewallVerdict",
     "QuarantineVault",
     "SemanticFirewall",
+    "ThresholdProfile",
+    "calibrate_threshold",
     "load_tenant_firewall",
     "normalize_for_firewall",
     "redact",
+    "threshold_for",
 ]
 
 # Hard cap for content-free surfaces (listings, audit events). Short
@@ -55,6 +61,124 @@ __all__ = [
 _PREVIEW_MAX = 16
 
 _VALID_LEVELS = frozenset(("open", "filter", "quarantine", "lockdown"))
+
+
+class CalibrationError(RuntimeError):
+    """No honest threshold could be produced or found for an embedder."""
+
+
+@dataclass(frozen=True)
+class ThresholdProfile:
+    """A measured block threshold for one embedding model.
+
+    ``separation`` is the evidence: ``(highest benign score, lowest
+    attack score)`` from the corpus the threshold was cut between. A
+    threshold shipped without it cannot be argued with, and a later
+    reader cannot tell a measurement from a guess.
+    """
+
+    model: str
+    threshold: float
+    separation: tuple[float, float]
+    note: str = ""
+
+    @property
+    def margin(self) -> float:
+        """Distance between the two clusters. Smaller means more fragile."""
+        benign_max, attack_min = self.separation
+        return attack_min - benign_max
+
+
+#: Thresholds measured with :func:`calibrate_threshold`. A model absent
+#: here has not been measured, and :func:`threshold_for` refuses it
+#: rather than lending it another model's number.
+CALIBRATED_PROFILES: dict[str, ThresholdProfile] = {
+    "sentence-transformers/all-mpnet-base-v2": ThresholdProfile(
+        model="sentence-transformers/all-mpnet-base-v2",
+        threshold=0.45,
+        # Ordinary business language tops out around 0.33 against the demo
+        # anchor catalogue; injection variants start around 0.63.
+        separation=(0.33, 0.63),
+        note=(
+            "demo anchor catalogue, English business + injection corpus. "
+            "The separation covers ordinary phrasing only: benign text that "
+            "borrows an attack's wording ('ignore my previous instructions') "
+            "scores ~0.63 and is blocked on purpose. That case is answered by "
+            "quarantine review and audited release, not by moving the cut — "
+            "no threshold separates intent."
+        ),
+    ),
+}
+
+
+def threshold_for(model: str) -> float:
+    """The measured threshold for ``model``, or refuse.
+
+    Fail-closed on purpose. Defaulting an unmeasured model to a number
+    that happened to work elsewhere is the failure this whole mechanism
+    exists to prevent: the gate keeps running and quietly stops
+    separating anything.
+    """
+    profile = CALIBRATED_PROFILES.get(model)
+    if profile is None:
+        known = ", ".join(sorted(CALIBRATED_PROFILES)) or "none"
+        raise CalibrationError(
+            f"no calibrated threshold for {model!r} (known: {known}). "
+            "Run calibrate_threshold() against your anchor catalogue and "
+            "register the resulting profile — a threshold from another "
+            "model does not transfer."
+        )
+    return profile.threshold
+
+
+def calibrate_threshold(
+    embedder: Any,
+    *,
+    anchors: Sequence[str],
+    attacks: Sequence[str],
+    benign: Sequence[str],
+    model: str,
+    margin_fraction: float = 0.5,
+) -> ThresholdProfile:
+    """Measure a block threshold for one embedder against one corpus.
+
+    Scores every ``attacks`` and ``benign`` sample against the anchor
+    set exactly as the live gate does, then cuts between the two
+    clusters at ``margin_fraction`` of the gap.
+
+    Raises :class:`CalibrationError` when the clusters overlap. That is
+    a real answer, not a failure to compute one: if some benign text
+    scores at or above the weakest attack, no single cosine cut
+    separates them, and the honest options are a better anchor
+    catalogue or a different model — never a threshold picked to look
+    decisive.
+    """
+    if not anchors or not attacks or not benign:
+        raise CalibrationError(
+            "calibration needs a non-empty anchor set, attack sample and "
+            "benign sample"
+        )
+
+    gate = SemanticFirewall(embedder, exclusion=list(anchors), threshold=1.1)
+    attack_scores = [gate.inspect(text).score for text in attacks]
+    benign_scores = [gate.inspect(text).score for text in benign]
+
+    attack_min = min(attack_scores)
+    benign_max = max(benign_scores)
+    if benign_max >= attack_min:
+        raise CalibrationError(
+            f"corpus is not separable for {model!r}: the highest benign score "
+            f"({benign_max:.3f}) meets or exceeds the lowest attack score "
+            f"({attack_min:.3f}). No single threshold separates them — widen "
+            "the anchor catalogue or change the embedder."
+        )
+    threshold = benign_max + (attack_min - benign_max) * margin_fraction
+    return ThresholdProfile(
+        model=model,
+        threshold=round(threshold, 3),
+        separation=(round(benign_max, 3), round(attack_min, 3)),
+        note=f"{len(attacks)} attack / {len(benign)} benign samples",
+    )
 
 # Common confusable homoglyphs (Cyrillic/Greek look-alikes -> Latin).
 # Folding these before embedding defeats homoglyph substitution that

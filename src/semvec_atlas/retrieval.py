@@ -9,11 +9,12 @@ Three sub-pipelines feed the fusion:
 * **recency** — ``$match`` + ``$sort access.last`` (deliberately *not*
   engine-internal scores).
 
-When the server offers ``$rankFusion`` (MongoDB 8.1+, preview) the
-fusion runs server-side with per-tenant weights. Otherwise — or when
-``force_fallback=True`` — the sub-pipelines run separately and the
-semvec wheel's ``rrf_fuse`` computes the reciprocal-rank fusion
-client-side with identical weights (the fallback ships in the
+When the server offers ``$rankFusion`` (generally available; requires
+MongoDB 8.1+ in combination with ``$vectorSearch``) the fusion runs
+server-side with per-tenant weights. Otherwise — a server below that
+floor, or ``force_fallback=True`` — the sub-pipelines run separately
+and the semvec wheel's ``rrf_fuse`` computes the reciprocal-rank
+fusion client-side with identical weights (the fallback ships in the
 wheel's Python layer, not the Rust core).
 
 The tenant guard plus ``deleted:false / evicted:false`` are embedded in
@@ -31,19 +32,41 @@ from pymongo.database import Database
 from pymongo.errors import OperationFailure
 from semvec.api.hybrid_retrieval import rrf_fuse
 
-# Promised by the wheel since semvec 0.8.8 — re-exported so callers
-# and the engine share one probe implementation.
+# The probe originated here and moved upstream in semvec 0.8.8
+# ("Mirrors the Atlas Edition's detect_rank_fusion") — since then the
+# wheel's copy is the one source of truth, re-exported for callers.
 from semvec.api.mongo_retrieval_backend import detect_rank_fusion
 
 from semvec_atlas.embedders import ensure_tenant_embedder
 from semvec_atlas.guard import TenantScope
 
-__all__ = ["Hit", "RetrievalEngine", "detect_rank_fusion"]
+__all__ = ["DomainJoin", "Hit", "RetrievalEngine", "detect_rank_fusion"]
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_WEIGHTS = {"semantic": 0.5, "lexical": 0.3, "recency": 0.2}
 _LIVE = {"deleted": False, "evicted": False}
+
+
+@dataclass(frozen=True)
+class DomainJoin:
+    """Join ranked memory hits to the business records they concern.
+
+    The memory item carries the identifying field (stamped at commit
+    time via ``domain_link``); this pulls the matching document from a
+    domain collection in the *same* aggregation. The join is
+    tenant-filtered inside the lookup pipeline rather than afterwards,
+    so a record belonging to another tenant is never a candidate.
+    """
+
+    collection: str
+    local_field: str
+    foreign_field: str | None = None
+
+    @property
+    def target_field(self) -> str:
+        """Field name on the domain document; defaults to the local one."""
+        return self.foreign_field or self.local_field
 
 
 @dataclass(frozen=True)
@@ -56,6 +79,8 @@ class Hit:
     ns: list[str]
     score: float
     value: dict[str, Any] | None = None
+    # The joined business record, when the query asked for one.
+    domain: dict[str, Any] | None = None
 
 
 class RetrievalEngine:
@@ -105,6 +130,7 @@ class RetrievalEngine:
         *,
         k: int = 8,
         query_embedding: Any | None = None,
+        join: DomainJoin | None = None,
     ) -> list[Hit]:
         """Hybrid candidate retrieval.
 
@@ -115,19 +141,90 @@ class RetrievalEngine:
         ``query_embedding`` lets callers that already embedded the
         query (or want to time embedding separately) skip the embedder
         call; it must come from the tenant's registered model.
+
+        ``join`` attaches the business record each hit concerns. On the
+        server-side path it is a ``$lookup`` inside the same
+        aggregation — one round trip for memory and domain data. On the
+        client-side fallback the records are fetched in one additional
+        batch query, because there is no server-side pipeline to hang
+        the lookup on.
         """
         if query_embedding is None:
             query_embedding = self._embedder.get_embedding(query)
         query_vector = [float(x) for x in query_embedding]
         if self.uses_rank_fusion:
             try:
-                return self._search_rank_fusion(query, query_vector, k)
-            except OperationFailure as exc:  # preview drift
+                return self._search_rank_fusion(query, query_vector, k, join)
+            except OperationFailure as exc:  # capability lost mid-flight
                 logger.warning(
                     "$rankFusion failed at query time, degrading to client RRF: %s", exc
                 )
                 self.uses_rank_fusion = False
-        return self._search_client_rrf(query, query_vector, k)
+        return self._search_client_rrf(query, query_vector, k, join)
+
+    # ------------------------------------------------------------------
+    # domain join
+
+    def _domain_lookup_stages(self, join: DomainJoin) -> list[dict[str, Any]]:
+        """``$lookup`` stages that cannot leave the tenant.
+
+        The tenant equality lives inside the lookup's own pipeline, so
+        it constrains the *joined* collection rather than filtering
+        afterwards — a foreign-tenant record with the same business key
+        is never matched in the first place.
+        """
+        return [
+            {
+                "$lookup": {
+                    "from": join.collection,
+                    "let": {"local_value": f"${join.local_field}"},
+                    "pipeline": [
+                        {
+                            "$match": {
+                                "$expr": {
+                                    "$and": [
+                                        {"$eq": ["$tenant", self._scope.tenant]},
+                                        {
+                                            "$eq": [
+                                                f"${join.target_field}",
+                                                "$$local_value",
+                                            ]
+                                        },
+                                    ]
+                                }
+                            }
+                        },
+                        {"$limit": 1},
+                    ],
+                    "as": "_domain",
+                }
+            },
+            {"$set": {"_domain": {"$first": "$_domain"}}},
+        ]
+
+    def _fetch_domain(
+        self, docs: list[dict[str, Any]], join: DomainJoin
+    ) -> dict[Any, dict[str, Any]]:
+        """Fallback-path join: one batch query for all hits, never one per hit.
+
+        Returns ``{business key: record}``. Tenant-scoped through the
+        guard, so the batch cannot pull a foreign tenant's record even
+        when the business keys collide.
+        """
+        keys = {
+            doc.get(join.local_field)
+            for doc in docs
+            if doc.get(join.local_field) is not None
+        }
+        if not keys:
+            return {}
+        tenant_wide = TenantScope(tenant=self._scope.tenant)
+        return {
+            record[join.target_field]: record
+            for record in self._db[join.collection].find(
+                tenant_wide.filter({join.target_field: {"$in": sorted(keys)}})
+            )
+        }
 
     # ------------------------------------------------------------------
     # sub-pipelines (shared by both paths)
@@ -184,7 +281,11 @@ class RetrievalEngine:
     # native path
 
     def _search_rank_fusion(
-        self, query: str, query_vector: list[float], k: int
+        self,
+        query: str,
+        query_vector: list[float],
+        k: int,
+        join: DomainJoin | None = None,
     ) -> list[Hit]:
         sub_limit = max(k * 3, 20)
         pipeline = [
@@ -209,9 +310,15 @@ class RetrievalEngine:
                     "tier": 1,
                     "ns": 1,
                     "value": 1,
+                    # The join's local field must survive the projection,
+                    # or the lookup below has nothing to match on.
+                    **({join.local_field: 1} if join else {}),
                     "scoreDetails": {"$meta": "scoreDetails"},
                 }
             },
+            # Memory and business record in one aggregation: the reason
+            # colocating them in one database is worth anything.
+            *(self._domain_lookup_stages(join) if join else []),
         ]
         hits = []
         for doc in self._col.aggregate(pipeline):
@@ -223,7 +330,11 @@ class RetrievalEngine:
     # fallback path (identical weights, wheel-provided fusion)
 
     def _search_client_rrf(
-        self, query: str, query_vector: list[float], k: int
+        self,
+        query: str,
+        query_vector: list[float],
+        k: int,
+        join: DomainJoin | None = None,
     ) -> list[Hit]:
         sub_limit = max(k * 3, 20)
         rankings: list[list[str]] = []
@@ -254,12 +365,23 @@ class RetrievalEngine:
         if not rankings:
             return []
         fused = rrf_fuse(rankings, weights=weights)
-        return [self._to_hit(docs_by_id[doc_id], score) for doc_id, score in fused[:k]]
+        top = [(docs_by_id[doc_id], score) for doc_id, score in fused[:k]]
+        records = self._fetch_domain([d for d, _ in top], join) if join else {}
+        return [
+            self._to_hit(
+                doc,
+                score,
+                domain=records.get(doc.get(join.local_field)) if join else None,
+            )
+            for doc, score in top
+        ]
 
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _to_hit(doc: dict[str, Any], score: float) -> Hit:
+    def _to_hit(
+        doc: dict[str, Any], score: float, *, domain: dict[str, Any] | None = None
+    ) -> Hit:
         return Hit(
             key=doc["key"],
             summary=doc.get("summary", ""),
@@ -267,4 +389,7 @@ class RetrievalEngine:
             ns=list(doc.get("ns", [])),
             score=score,
             value=doc.get("value"),
+            # ``_domain`` is what the server-side $lookup writes; the
+            # fallback path passes its batch-fetched record explicitly.
+            domain=domain if domain is not None else doc.get("_domain"),
         )
