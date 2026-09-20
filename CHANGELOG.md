@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **The `semvec` dependency no longer carries an upper bound.** It was
+  `>=0.8.8,<0.9`; it is now `>=0.8.8`. The cap was not protecting anything: it was
+  written when 0.8.8 was current, and its only effect would have been to make a
+  `semvec` 0.9 release uninstallable alongside this package. That failure is silent
+  and misleading -- pip reports an unsatisfiable resolution, not an incompatibility,
+  so the first person to hit it debugs the wrong thing.
+
+  Verified against a locally built `semvec` 0.8.9 before the change: the 66 tests that
+  need no database pass, an 0.7.6 snapshot blob still restores identically, the frozen
+  engine state vector still reproduces, and every semvec symbol this package imports
+  still resolves. A control run against the published 0.8.8 gave the same 66 passes and
+  the same 7 pre-existing mypy findings, so nothing here is attributable to the newer
+  engine. The 231 tests that require `mongodb/mongodb-atlas-local` were NOT run.
+
+  Removing the cap does not make future versions compatible -- it makes incompatibility
+  visible as a failing test instead of as a resolver error. The compatibility question
+  belongs to CI, not to a guess encoded at packaging time.
+
 ## 0.1.0a6
 
 Business records beside agent memory, the coordination layer persisted,

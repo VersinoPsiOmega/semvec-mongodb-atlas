@@ -27,7 +27,7 @@ persistence and retrieval backend for the
 [Semvec](https://semvec-docs.pages.dev) memory engine.
 
 > Status: alpha. Verified by 297 tests against the public
-> API of the `semvec` PyPI wheel (`>=0.8.8,<0.9`) and a local
+> API of the `semvec` PyPI wheel (`>=0.8.8`) and a local
 > `mongodb/mongodb-atlas-local` deployment (MongoDB 8.3.4 — Atlas
 > Search, Vector Search, transactions, native `$rankFusion`).
 

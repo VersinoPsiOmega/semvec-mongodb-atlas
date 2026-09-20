@@ -6,7 +6,7 @@ GDPR-grade forgetting for the [Semvec](https://semvec-docs.pages.dev)
 memory engine.
 
 > Status: alpha · 297 tests · engine:
-> `semvec>=0.8.8,<0.9` · verification target:
+> `semvec>=0.8.8` · verification target:
 > `mongodb/mongodb-atlas-local` (MongoDB 8.3.4 — Atlas Search, Vector
 > Search, multi-document transactions, native `$rankFusion`)
 
@@ -129,7 +129,7 @@ flowchart TB
 
 **Layering.** No engine logic is re-implemented in this package, and
 everything is built against the *public* wheel API
-(`semvec>=0.8.8,<0.9`).
+(`semvec>=0.8.8`).
 
 **Tenant guard by construction.** Repository code never assembles raw
 filters. Every query asks an immutable `TenantScope` for one; any

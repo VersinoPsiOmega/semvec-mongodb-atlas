@@ -59,8 +59,13 @@ class MongoStateStore(_EngineMongoStateStore):
         # Deliberately no super().__init__(): the upstream constructor
         # resolves a client from the environment; semvec-atlas already
         # holds a tenant-scoped Database. The attributes below are the
-        # exact surface the inherited methods read (contract pinned by
-        # the lineage tests and the version pin <0.9):
+        # exact surface the inherited methods read. That contract is against a
+        # PRIVATE surface, so it is pinned by tests/test_engine_private_surface.py,
+        # which fails if the engine stops reading one of these names. This comment
+        # used to credit "the lineage tests and the version pin <0.9" instead;
+        # neither was true — the lineage tests pin four public identities and none
+        # of these five, and the cap only ever turned an incompatibility into an
+        # unsatisfiable install:
         # ``_collection`` for every CAS read/write, ``_event_store`` /
         # ``_uri`` / ``_db_name`` for the lazily built event writer
         # behind ``save(events=...)``, and ``_txn_supported`` for the

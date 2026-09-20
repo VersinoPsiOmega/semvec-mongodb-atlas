@@ -2,7 +2,7 @@
 
 Engineering architecture of the *Semvec Atlas Edition*, built
 against the **public API of the `semvec` PyPI wheel**
-(pinned `>=0.8.8,<0.9`) and a local `mongodb/mongodb-atlas-local`
+(`>=0.8.8`) and a local `mongodb/mongodb-atlas-local`
 deployment (MongoDB 8.3.4 — Atlas Search, Vector Search, transactions,
 native `$rankFusion`). For the product-level view with diagrams, see
 [`PRODUCT_OVERVIEW.md`](PRODUCT_OVERVIEW.md).
